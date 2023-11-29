@@ -64,18 +64,6 @@ def mac2x(string):
     return new_string
 
 
-def most_specialized_class(obj1, obj2):
-    """Return the most specialized class between those of objects
-    *obj1* and *obj2*"""
-    cl1 = obj1.__class__
-    cl2 = obj2.__class__
-    if isinstance(obj1, cl2):
-        return cl1
-    if isinstance(obj2, cl1):
-        return cl2
-
-
-
 ### Classes defined from here ###
 
 class NodeIndex(float):
@@ -92,48 +80,29 @@ class NodeIndex(float):
         self.__class__.format = newformat
 
     def __add__(self, other):
-        return most_specialized_class(self, other)(float(self) + float(other))
+        return self.__class__(float(self) + float(other))
 
     def __sub__(self, other):
-        return most_specialized_class(self, other)(float(self) - float(other))
+        return self.__class__(float(self) - float(other))
 
     def __mul__(self, other):
-        return most_specialized_class(self, other)(float(self) * float(other))
+        return self.__class__(float(self) * float(other))
 
     def __div__(self, other):
         return self.__class__(float(self) / float(other))
-
-    def __radd__(self, other):
-        return most_specialized_class(self, other)(float(other) + float(self))
-
-    def __rsub__(self, other):
-        return most_specialized_class(self, other)(float(other) - float(self))
-
-    def __rmul__(self, other):
-        return most_specialized_class(self, other)(float(other) * float(self))
-
-    def __rdiv__(self, other):
-        return most_specialized_class(self, other)(float(other) / float(self))
-
-    def __truediv__(self, other):
-        return self.__div__(other)
-
-    def __rtruediv__(self, other):
-        return self.__rdiv__(other)
 
 
 class Bootstrap(NodeIndex):
     """This object represents a node bootstrap percentage."""
     format = "%.0f"
 
-    format = "%.0f"
-
     def __init__(self, initval):
         NodeIndex.__init__(self, initval)
 
     def __str__(self):
-        # Bootstrap values are displayed as percentages.
-        return self.__class__.format % (100 * float(self))
+        # perc = 100*self
+        return f"{(int(self * 100)):}"  # Bootstrap values are displayed as percentages.
+
 
 class PosteriorP(NodeIndex):
     """This object represents a node posterior probability."""
@@ -204,14 +173,15 @@ class Bipartition(object):
                                                     "datasets names. "
         if newdata is not None:
             for m in newdata:
-                if m in self.weights:
-                    raise Exception("dataset %s already taken into account" % m)
+                self.weights[m] = w + self.weights.get(m, 0)
+        self.weight = w + self.weight
+        self.support = w + self.support
+        if newdata is not None:
+            for m in newdata:
+                if m in self.datasets:
+                    raise Exception(f"dataset {m} already taken into account")
                 else:
-                    self.weights[m] = w
-                    # self.weights[m] = w + self.weights.get(m, 0)
-        self.weight += w
-        self.support += w
-
+                    self.datasets.add(m)
 
     def clade(self, root):
         """self.clade(root) returns a clade corresponding to the rooting of self by the taxon <root>, given as a
@@ -275,9 +245,12 @@ class Clade(Bipartition):
 
     def __eq__(self, other):
         if self.id == other.id:
-            return 0
+            return True
         if self.domain == other.domain:
-            return self.inclade == other.inclade
+            return False
+        else:
+            raise ValueError("""To be compared, two clades must have the same validity domain,
+                                         that is, define a partition of the same set of taxa.""")
 
     def __ne__(self, other):
         if self.id == other.id:
@@ -379,7 +352,7 @@ class Clade(Bipartition):
         sup_outclade = self.outclade & tree.domain
         supporting = tree.find_clade(Clade(sup_inclade, sup_outclade))
         if supporting:
-            print("supporting !")  # PROBLEM IS HERE: it's never supporting
+            #print("supporting !")  # PROBLEM IS HERE: it's never supporting
             return supporting.support
         return tree.support.__class__(0)
 
@@ -405,7 +378,6 @@ class Clade(Bipartition):
             if supp is not None:
                 relevant += 1
                 if supp:
-                    print("supp is true")
                     self.occurences += 1  # problem is here: we never get here
         # print(f"self occurences : {self.occurences}, relevant : {relevant}")
         self.repro = self.occurences / float(relevant)
@@ -499,37 +471,10 @@ class Clade(Bipartition):
 
 
 class BipartSet(dict):
-    __slots__ = ("_biparts", "_key_order", "tax2val")
 
-    # __slots__ = ("_biparts", "tax2val")
-    def __init__(self, converter, filenames, suffix=".parts"):
-        msg = ("The converter is supposed to be a dictionary "
-               "converting taxon names into powers of 2.")
-        assert isinstance(converter, dict), msg
-        # dictionary converting from taxon names to powers of 2
-        self.tax2val = converter
-        # keys are frozensets, values are bipartitions
-        self._biparts = {}
-        # for filename in filenames:
-        #    os.path.basename(filename)
-        self._key_order = None
-
-    def predictable_key_order(self):
-        """Generate a predictable order of the bipartition identifiers."""
-        # return [frozenset(t) for t in sorted([tuple(sorted(k)) for k in self._biparts.keys()])]
-        # Frozenset sorting may vary depending on the Python version.
-        # Use tuples to determine the order.
-        if self._key_order is None:
-            self._key_order = [frozenset(t) for t in sorted([
-                tuple(sorted(bipart_id)) for bipart_id in self._biparts])]
-        for bip_id in self._key_order:
-            yield bip_id
-
-    def iter_biparts(self):
-        # Not valid in python2.7
-        # yield from self._biparts.values()
-        for bipart in self._biparts.values():
-            yield bipart
+    def __init__(self):
+        dict.__init__(self)
+        self.tax2val = {}
 
     def __str__(self):
         name = "{"
@@ -575,12 +520,12 @@ class BipartSet(dict):
         assert isinstance(converter, dict), "The converter is supposed to be a dictionnary converting taxon names " \
                                             "into powers of 2. "
         val = converter[taxon]
-        cols = self.predictable_key_order()  # turned into list because there is not .sort for dict keys anymore
+        cols = list(self.keys())  # turned into list because there is not .sort for dict keys anymore
         #sorted(cols)
         for col in cols:
 
             # This should be correct, yet somehow we have different values apparently ?
-            for marker in self._biparts[col].weights:
+            for marker in self[col].weights:
                 if self[col].inclade & val:
                     line += "1"
                 elif self[col].outclade & val:
@@ -591,11 +536,13 @@ class BipartSet(dict):
 
     def weight_set(self, set_name):
         assert isinstance(set_name, str), "The name of a weight set should be a string."
+        cols = list(self.keys())
+        cols.sort()
 
-        def weights(bipart_id):
+        def weights(column):
             weights = []
-            for marker in self._biparts[bipart_id].weights:
-                weights.append((self[bipart_id].weights[marker], marker))
+            for marker in self[column].weights:
+                weights.append((self[column].weights[marker], marker))
             return weights
 
         wtset = f"wtset {set_name} = "
@@ -603,8 +550,8 @@ class BipartSet(dict):
         wtset += "\n"
         i = 1
 
-        for bipart in self.predictable_key_order():
-            for w in weights(bipart):
+        for col in cols:
+            for w in weights(col):
                 wtset = wtset + indent + "%s: %s [%s],\n" % (w[0], i, w[1])
                 i = i + 1
         wtset = wtset[:len(indent)] + wtset[2 * len(indent) + 1:-2] + ";\n"
@@ -1047,8 +994,8 @@ def main():
     sys.stdout.write(", ".join(toopen) + "\n")
     # dictionnary whose keys are datasets names and the associated values are the trees produced by the dataset
     datasetsdict = {}
-    B = BipartSet(tax2val, toopen, suffix)
-    #B.set_converter(tax2val)
+    B = BipartSet()
+    B.set_converter(tax2val)
     # Loop over the files (and hence, to the markers):
     for file in toopen:
         if suffix == ".parts":
