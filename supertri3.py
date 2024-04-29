@@ -8,10 +8,11 @@ import re
 import sys
 import warnings
 from functools import reduce
+from collections import OrderedDict
 
-__version__ = "$Revision: 58 $"
+__version__ = "$Revision: 59 $"
 __licence__ = """
-concatnexus.py
+supertri3.py
 
 Copyright (C) 2007 Anne Ropiquet, Blaise Li and Alexandre Hassanin
 
@@ -31,9 +32,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 """
 
 
-# TODO : have 3 files for later readability :supertri_classes, supertri_functions, supertri3
-#  (supertri3.py imports classes and functions from the other 2)
-
+MAX_TAX_NAME = 0
 
 def oui(question):
     return (input("\n" + question + " (y/n) ") in
@@ -59,14 +58,27 @@ def askfile(question, list_of_files=None):
 
 def mac2x(string):
     # This fct is not used anymore i think
-    """mac2x(string) returns a string corresponding to <string> but with the mac-style ends of line translated to unix-style ends of line."""
-    new_string = str.replace("\r", "\n")
+    """mac2x(string) returns a string corresponding to <string> but with the mac-style ends of line translated to
+    unix-style ends of line. """
+    new_string = str.replace("\r", "\n", string)
     return new_string
 
 
-### Classes defined from here ###
+###########
+# Objects #
+###########
 
 class NodeIndex(float):
+    """
+    Represents a node support index
+
+    Attributes
+    ----------
+    initval: float
+        Initial value of the node support
+    """
+
+
     format = "%.2f"
 
     def __init__(self, initval):
@@ -76,6 +88,7 @@ class NodeIndex(float):
         return self.__class__.format % float(self)
 
     def reformat(self, newformat):
+        """This function changes globally the format for all indexes of the same class as self."""
         assert isinstance(newformat, str), "newformat must be a string"
         self.__class__.format = newformat
 
@@ -93,7 +106,15 @@ class NodeIndex(float):
 
 
 class Bootstrap(NodeIndex):
-    """This object represents a node bootstrap percentage."""
+    """
+    This object represents a node bootstrap percentage.
+
+    Attributes
+    ----------
+    initval: float
+        Initial Boostrap value
+
+    """
     format = "%.0f"
 
     def __init__(self, initval):
@@ -105,7 +126,9 @@ class Bootstrap(NodeIndex):
 
 
 class PosteriorP(NodeIndex):
-    """This object represents a node posterior probability."""
+    """
+    This object represents a node posterior probability.
+    """
     format = "%.2f"
 
     def __init__(self, initval):
@@ -113,7 +136,19 @@ class PosteriorP(NodeIndex):
 
 
 class Bipartition(object):
-    """put useful docstrings here"""
+    """
+    Represents a bipartition
+
+    Attributes
+    ----------
+    inclade :
+        smth
+    outclade: smth
+        smth
+    brlen: float
+        Represents branch length of the bipartition
+
+    """
 
     def __init__(self, inclade, outclade, brlen=None):
         self.datasets = set([])  # initiate empty set out of a list (an iterable))
@@ -136,6 +171,7 @@ class Bipartition(object):
         return f"Bipart ({self.inclade},{self.outclade})"
 
     def compatible(self, other):
+        """self.compatible(other) returns True if self and other can be found in the same tree."""
         assert isinstance(other, (Bipartition, Clade, list)), \
             "Must be compared with a clade or a bipartition or a list of such objects."
         if isinstance(other, list):
@@ -153,7 +189,8 @@ class Bipartition(object):
             return a == 0 or b == 0 or c == 0 or d == 0
 
     def allcompat(self, list_of_others):
-
+        """self.allcompat(list_of_others) returns True if self is compatible with all the elements of the list
+        <listofothers>. """
         assert isinstance(list_of_others, list), "allcompat only works with lists."
         result = True
         i = 0
@@ -165,7 +202,8 @@ class Bipartition(object):
         return result
 
     def update(self, w, newdata=None):
-
+        """self.update(w, newdata) increases the weight of the bipartition and records the new data that produced the
+        bipatition. """
         assert isinstance(w, (int, float)) and w >= 0, "The weight is supposed to be a positive number."
         # A NodeIndex object is also a float.
         assert isinstance(newdata,
@@ -199,6 +237,22 @@ class Bipartition(object):
 
 
 class Clade(Bipartition):
+    """
+       "This object represents a clade, that is an oriented bipartition.
+    It also has a dictionnary of subclades, to optionally specify its internal topology.
+
+       Attributes
+       ----------
+       inclade :
+           smth
+       outclade: smth
+           smth
+       brlen: float
+           Represents branch length of the bipartition
+       root: float
+           Root of the tree
+
+       """
 
     def __init__(self, inclade, outclade, root=None, brlen=None):
         Bipartition.__init__(self, inclade, outclade, brlen)
@@ -212,17 +266,22 @@ class Clade(Bipartition):
         # self.findtriplets for that.
 
     def bipart(self):
+        """self.bipart() returns a bipartition corresponding to the unrooting of self."""
         bip = Bipartition(self.inclade, self.outclade, self.brlen)
         for attr in self.__dict__:
             if attr not in ['id', 'inclade', 'outclade', 'root', 'domain', 'subclades', 'tgf', 'triplets']:
                 bip.__dict__[attr] = copy.deepcopy(self.__dict__[attr])
         return bip
 
+    # Beware of the implication of this method on the use of the "in" operator.
     def __contains__(self, other):
+        """self.__contains__(other) returns True if Clade <other> can be a subclade of self, False otherwise.
+                Empty clades are considered included in any clade that shares the same validity domain. Inclusion implies compatibility."""
+
         assert isinstance(other, Clade), "To state about inclusion, the object must be a Clade type object."
         if other.domain == self.domain:
             inter = other.inclade & self.inclade
-            ## Verification
+            # Verification
             if other.inclade == inter:
                 assert self.compatible(other), "other is in self, so it should be compatible."
             return other.inclade == inter
@@ -274,6 +333,9 @@ class Clade(Bipartition):
         return f"Clade {self.inclade},{self.outclade})"
 
     def addsubclades(self, subclades):
+        """self.addsubclades(subclades) recursively includes the clades in the list <subclades> into self.
+                This method should not be called with a partial list of subclades, since all taxa of the clade not
+                present in the subclades are considered being placed in an unresolved basal position (a "rake")."""
 
         assert isinstance(subclades, list), "This method only accepts a list of subclades as argument."
         rejected = []
@@ -317,11 +379,14 @@ class Clade(Bipartition):
         return sorted(to_keep)
 
     def set_support_type(self, type):
+        """self.set_support_type(type) recursively sets the support type to the class <self>."""
         self.support.__class__ = type
         for subclade in self.subclades.values():
             subclade.set_support_type(type)
 
     def find_clade(self, c):
+        """self.find_clade(c) tries to find if clade c is a subclade of self or of one of its subclades, and recursively.
+         It returns a copy of the clade found, if there is one, None otherwise."""
         # The cause of the error is here, but why ?
         assert isinstance(c, Clade), "Can only tell inclusion for Clade objects."
         try:
@@ -331,8 +396,7 @@ class Clade(Bipartition):
                           "in the other. Don't panic, this is just a little warning; the execution is probably going "
                           "on...")
             return None
-        if c == self:  # TODO problem is here, c is never == self fsr ?????? -> problem in the way the fct is called?
-            # This is because self.inclade and self.outclade later on are not == to what we get in python 2....
+        if c == self:
             return copy.deepcopy(self)
 
         detected = None
@@ -344,6 +408,12 @@ class Clade(Bipartition):
         return detected
 
     def is_supported_by(self, tree):
+        """self.is_supported_by(tree) returns the support value of the clade of <tree> "equivalent" to the clade self
+        if there is one, 0.0 if there is not, and None if this is not relevant. If there are missing taxa for <tree>,
+        the support of a clade is actually the support of its restriction to the validity domain of <tree>. It is not
+        relevant to assess the support when the minimal set of taxa necessary to "recognize" the clade self is
+        missing from <tree>. """
+
         for subclade in self.subclades.values():
             if subclade.inclade & tree.domain == 0:
                 return None  # The tree is not relevant because it doesn't have the essential taxa;
@@ -352,11 +422,14 @@ class Clade(Bipartition):
         sup_outclade = self.outclade & tree.domain
         supporting = tree.find_clade(Clade(sup_inclade, sup_outclade))
         if supporting:
-            #print("supporting !")  # PROBLEM IS HERE: it's never supporting
             return supporting.support
         return tree.support.__class__(0)
 
     def compute_indices(self, source_trees, bipartitions):
+        """self.compute_indices(sourcetrees) computes the mean support self.meansup and the reproducibility self.repro
+        using the trees in the list <sourcetrees> and the bipartitions in <bipartitions>. It proceeds recursively for
+        all subclades of self. """
+
         self.meansup = Bootstrap(self.meansup)
         assert not (self.support or self.occurences), "index computation must start from zero."
         # all bipartitions considered successively
@@ -378,16 +451,17 @@ class Clade(Bipartition):
             if supp is not None:
                 relevant += 1
                 if supp:
-                    self.occurences += 1  # problem is here: we never get here
-        # print(f"self occurences : {self.occurences}, relevant : {relevant}")
+                    self.occurences += 1
         self.repro = self.occurences / float(relevant)
-        # print(f"self repro {self.repro}")# TODO there's smth going on here
         self.meansup = Bootstrap(self.support / relevant)
 
         for subclade in self.subclades:
             self.subclades[subclade].compute_indices(source_trees, bipartitions)
 
     def parenthesize(self, converter, index=""):
+        """self.parenthesize(converter, index) returns the parenthesized description of self.
+                <converter> is a dictionnary that translates from powers of 2 to taxon names.
+                If <index> is specified, the attribute whose name is <index> will be written as node labels."""
         assert isinstance(index, str), "If defined, index should be provided as a string."
         if self.inclade in converter:
             if self.brlen:
@@ -413,8 +487,11 @@ class Clade(Bipartition):
             return "(" + ",".join([Clade.parenthesize(a[0], a[1], a[2]) for a in arguments]) + ")"
 
     def gettgf(self, converter, indent):
+        """self.gettgf(converter, indent) sets self.tgf and returns it.
+                <converter> is the dictionnary that translates the powers of 2 into taxa names.
+                <indent> is just to improve readability of the tgf format."""
         if self.tgf is not None:
-            return self.tgf  # hmmmm?
+            return self.tgf
         else:
             if self.inclade in converter:  # It's a terminal taxon.
                 if self.brlen is not None:
@@ -440,6 +517,11 @@ class Clade(Bipartition):
             return self.tgf
 
     def next_tree(self, converter, index="", to_root=True):
+        """self.next_tree(converter, index) returns the nexus representation of self.
+                <converter> is a dictionnary that translates from powers of 2 to taxon names.
+                If <index> is specified, the attribute whose name is <index> will be written as node labels.
+                If <toroot> is True, the root of the tree must be explicitly added to the nexus parenthesised form."""
+
         if index == "meansup":
             self.meansup = Bootstrap(self.meansup)
             tmpfmt = self.meansup.format
@@ -471,6 +553,21 @@ class Clade(Bipartition):
 
 
 class BipartSet(dict):
+    """
+      This object represents a set of bipartitions.
+    It is a dictionnary of bipartitions of the type Bipart.
+    bipartitions should be added using the method addbipart()
+
+       Attributes
+       ----------
+       inclade :
+           smth
+       outclade: smth
+           smth
+       brlen: float
+           Represents branch length of the bipartition
+
+       """
 
     def __init__(self):
         dict.__init__(self)
@@ -488,6 +585,8 @@ class BipartSet(dict):
         self.tax2val = dic
 
     def add_bipart(self, bipart):
+        """self.add_bipart(bip) adds bipartition <bip> to self if it is new or updates self according to the new
+        informations carried by <bip>. """
         assert isinstance(bipart, Bipartition), "Only Bipartition objects can be added to a BipartSet object."
 
         if bipart.id in self:
@@ -496,10 +595,17 @@ class BipartSet(dict):
             self[bipart.id] = bipart
 
     def matrix_line(self, taxon, converter=None):
+        """self.matrix_line(taxon,converter) returns a nexus matrix representation line for taxon <taxon> with "1",
+        "0", or "?" for the columns representing the bipartitions of self. "1" is when the taxon is present in the
+        bipartition, 0 when it's outside and "?" when the information is missing. converter is the dictionnary used
+        to convert taxa to values as powers of 2. """
         assert isinstance(taxon, str), "Taxon names should be strings."
 
         def valid_name(tax):
-            special = False
+            """valid_name(taxon) returns the conversion of the name <taxon> to a string valid in PAUP. Spaces are
+            replaced with underscores ("_") and if other non-alphanumeric characters are met, the string is placed
+            between single quotes. """
+            special = False # True once special characters have been met
             valid = ""
             for c in tax:
                 if c.isalnum():
@@ -520,7 +626,7 @@ class BipartSet(dict):
         assert isinstance(converter, dict), "The converter is supposed to be a dictionnary converting taxon names " \
                                             "into powers of 2. "
         val = converter[taxon]
-        cols = list(self.keys())  # turned into list because there is not .sort for dict keys anymore
+        cols = list(self.keys())  # turned into list because there is no .sort for dict keys anymore
         #sorted(cols)
         for col in cols:
 
@@ -535,11 +641,15 @@ class BipartSet(dict):
         return line
 
     def weight_set(self, set_name):
+        """self.weight_set() returns a nexus weight set corresponding to the weights of the bipartitions of self.
+                <setname is the name to give to the set>"""
         assert isinstance(set_name, str), "The name of a weight set should be a string."
         cols = list(self.keys())
         cols.sort()
 
         def weights(column):
+            """weights(column) returns the list of the pairs (weight, marker) corresponding the bipartition whose
+            column is <column>. """
             weights = []
             for marker in self[column].weights:
                 weights.append((self[column].weights[marker], marker))
@@ -558,6 +668,12 @@ class BipartSet(dict):
         return wtset
 
     def nex_matrix_rep(self, taxons, converter=None, weight=True, set_name=None):
+        """self.nexmatrixrep(weight, setname) returns the matrix representation of the bipartitions stored in self.
+                <taxons> is the list of the taxon names that are supposed to be in the bipartitions.
+                <converter> is the dictionnary converting from taxon names to powers of 2.
+                If <weight> is true, an assumptions bolck is added, defining the weights of the columns of the matrix.
+                <setname> is the name to give to the weights set."""
+
         assert isinstance(taxons, list), "Taxons should be a list of taxon names."
         if converter is None:
             converter = self.tax2val
@@ -585,10 +701,11 @@ begin data;
         return matrix
 
 
-# FUNCTION DEFINITION STARTS HERE
+# FUNCTION DEFINITION STARTS HERE ------------------------------------------------------------------------------------
 
 
 def decomposition(integer):
+    """decomposition(integer) returns the list of the powers of 2 composing <integer>."""
     powers = []
     sum = 0
     puiss = 1
@@ -601,6 +718,10 @@ def decomposition(integer):
 
 
 def read_bootlog(bootlog, ntaxs):
+    """read_bootlog(ntaxs) reads the PAUP bootstrap log file <bootlog> that contains the description of bipartitions
+    in the form of "." and "*", with values associated to these bipartitions (for example, bootstrap supports). This
+    function returns a list of pairs representing the bipartitions read in <bootlog>. and their associated values. """
+
     print(f"reading {bootlog} ...")
     file = open(bootlog, 'r')  # TODO with open ?
     lines = file.read().split("\n")
@@ -661,6 +782,10 @@ def read_bootlog(bootlog, ntaxs):
 
 
 def read_biparts(bipart_file):
+    """read_biparts(partsfile) reads the file <partsfile> that contains the description of bipartitions in the form of
+    "." and "*", with values associated to these bipartitions (for example, posterior probabilities). This function
+    returns a list of pairs representing the bipartitions read in <partsfile>. and their associated values. """
+
     bipartitions = []
     fich = open(bipart_file, 'r')
     lines = fich.read().split("\n")
@@ -674,6 +799,9 @@ def read_biparts(bipart_file):
 
 
 def val_stars(l, missing_vals=[]):
+    """val_stars(line,missing) reads a line <l> composed of "." and "*" representing a bipartition. This function
+    returns the value of the set of taxa represented by a "*" and the value of the set of taxa represented by a ".",
+    assuming that taxa whose values are in the list <missing_vals> are not represented in <l>. """
     puiss = 1
     val = 0
     compl = 0
@@ -695,6 +823,9 @@ def val_stars(l, missing_vals=[]):
 
 
 def readnextrees(treefile, converter):
+    """readnextrees(file, taxons) reads the trees in nexus format that are written in the file <treefile>. These trees must use only taxa that are keys of the dictionnary <converter>.
+        <converter> is a dictionnary that translates from taxon names to powers of 2.
+        This function returns a list of Clade objects that correspond to the trees, without a specified root."""
     with open(treefile, 'r', encoding='latin1') as fich:
         lines = fich.read().split("\n")
     trees = []
@@ -711,11 +842,16 @@ def readnextrees(treefile, converter):
 
 
 def regtaxname(taxon):
+    """regtaxname(taxon) returns a compiled regular expression that should match <taxon> as a taxon name in a newick tree,
+    that is <taxon> between separators like ":", "(", "," or ")". """
     reg = re.compile("\\W%s\\W" % taxon)  # The taxon name should be between 2 non-word characters.
     return reg
 
 
 def read_brlen(parenth, i):
+    """read_brlen(parenth, i) returns the value of the branch length written in the parenthesized clade description
+    <parenth> just after position <i> in this string. If there is no branch length, it return None. This function
+    also retruns the position in <parenth> where the branch length ends. """
     if i + 1 < len(parenth):
         if parenth[i + 1] in [",", ")"]:
             return None, i
@@ -728,6 +864,11 @@ def read_brlen(parenth, i):
 
 
 def read_terminal(parenth, i, converter):
+    """read_terminal(parenth, i, converter) reads a terminal taxon and its possible branch length in the parenthesized
+    clade <parenth> starting at positin <i> in this string. This function returns the value of the terminal taxon as
+    obtained by the use of the dictionnary <converter>, the value of the branch length if there is one, or None,
+    and the position in <parenth> corresponding to the last character of the taxon or of its branch length. """
+
     r = re.compile("\w+:*\d*\.*\d*")  # pattern matching a taxon name possibly followed by a branch length
     # r = re.compile("\w+\(*\d*\)*:*\d*\.*\d*") # pattern matching a taxon name followed by a branch length
     m = r.match(parenth, i)  # use match rather than search: search tilts too soon
@@ -742,6 +883,11 @@ def read_terminal(parenth, i, converter):
 
 
 def read_parenth(parenth, converter, domain, root=None, brlen=None):
+    """read_parenth(parenth, converter, domain, root, brlen) builds the Clade object that corresponds to the newick format tree <parenth>. This tree must only use taxa that are keys in the dictionnary <converter>.
+        <converter> is a dictionnary that translates from taxon names to powers of 2.
+        <domain> is the sum of the values of the taxa on which the clade is defined; its validity domain.
+        If <root> is specified, it will be used as explicit root for the clade.
+        If <brlen> is provided, it will be recorded in the Clade object."""
     assert parenth[0] == "(" and parenth[-1] == ")", "A newick clade must be delimited by parentheses."
     if root is not None:
         assert root & domain, "The root must be in the validity domain."
@@ -779,6 +925,10 @@ def read_parenth(parenth, converter, domain, root=None, brlen=None):
 
 
 def get_root(interactive, taxons, converter, missingvalues=[]):
+    """get_root(interactive, missingvalue) returns the name of the root taxon, chosen by the user if <interactive> is True, or Arbitrarily chosen otherwise.
+        <taxons> is the list of taxon names.
+        <converter> is a dictionnary translating from taxon names to powers of 2.
+        <missingvalues> is a list of the values of the taxa that cannot be chosen as root."""
     assert isinstance(taxons, list), "taxons is supposed to be a list of taxon names."
     assert isinstance(converter, dict), "converter should be a dictionnary converting from taxon names to powers of 2."
     root = False
@@ -804,13 +954,16 @@ def get_root(interactive, taxons, converter, missingvalues=[]):
 
 
 def sort_clades(clades, attr):
+    """sort_clades(clades, attr) returns the sorted list corresponding to the list <clades>, sorted according to the
+    attribute <attr> of the clades in the list. The clades with the highest value of attr are placed on top of the
+    list. """
     # implementation taken from module func2 of package p4
     def pairing(clade, attr=attr):
         """pairing(clade, attr) returns the pair clade.attr, attr."""
         return getattr(clade, attr), clade
 
     pairs = [pairing(clade) for clade in clades]
-    pairs.sort()  # TODO : look into sort for map objects
+    pairs.sort()
 
     def strip(pair):
         """strip(pair) returns the second element of a pair."""
@@ -821,6 +974,8 @@ def sort_clades(clades, attr):
 
 
 def consensusclades(clades, type):
+    """consensusclades(clades, type) returns a selection of the clades in list <clades>.
+        The selection is made to obtain a consensus of the type specified by <type>."""
     sorted_clades = sort_clades(clades, "weight")
     sorted_clades.reverse()  # The clades with the highest weight come first.
     selection = []
@@ -858,7 +1013,9 @@ def consensusclades(clades, type):
                                   "Possible types are strict, majrule and greedy.") % type
 
 
-# MAIN FUNCTION
+################
+# Main program #
+################
 
 def main():
     sys.stdout.write(
@@ -978,7 +1135,6 @@ def main():
     val2tax = {}  # to convert from powers of 2 to names
     tax2val = {}  # to convert from names to powers of 2
 
-    # TODO: make it global outside this function (at the top of the program, in caps) as per convention
     global maxtaxname
     maxtaxname = 0  # used to align the supertree matrix
 
@@ -1084,7 +1240,6 @@ def main():
                                                         "bipartition. This should not happen. "
                 # Majority-rule selection:
                 if bip.weight > 0.5:
-                    # print bip.clade(tax2val[root]).domain
                     maj_clades.append(bip.clade(tax2val[root]))
                 B.add_bipart(bip)  # If B already contains bip, the existing record is updated.
         else:
@@ -1122,7 +1277,7 @@ def main():
                 if bip.weight > 0.5:
                     maj_clades.append(bip.clade(tax2val[root]))
                 B.add_bipart(bip)
-        clades.sort()  # TODO check les sort ici
+        clades.sort()
         maj_clades.sort()  # majority-rule consensus; contains only the clades appearing in more than half the profile
         if greedy:  # majclades is overriden, it was there for a test version
             maj_clades = consensusclades(clades, "greedy")
@@ -1172,7 +1327,6 @@ def main():
         out_file_name = tree_file + ".withindices"
         output = "#Nexus\n\n"
         new_trees = readnextrees(tree_file, tax2val)
-        print(len(new_trees))
         for tree in new_trees:
             if suffix == ".log":
                 tree.set_support_type(Bootstrap(0).__class__)
