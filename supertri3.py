@@ -137,16 +137,7 @@ class PosteriorP(NodeIndex):
 
 class Bipartition(object):
     """
-    Represents a bipartition
-
-    Attributes
-    ----------
-    inclade :
-        smth
-    outclade: smth
-        smth
-    brlen: float
-        Represents branch length of the bipartition
+    This object represents a bipartition.
 
     """
 
@@ -556,16 +547,7 @@ class BipartSet(dict):
     """
       This object represents a set of bipartitions.
     It is a dictionnary of bipartitions of the type Bipart.
-    bipartitions should be added using the method addbipart()
-
-       Attributes
-       ----------
-       inclade :
-           smth
-       outclade: smth
-           smth
-       brlen: float
-           Represents branch length of the bipartition
+    bipartitions should be added using the method add_bipart()
 
        """
 
